@@ -1,0 +1,186 @@
+//
+//  Toolbar.swift
+//  UIScrollViewDemo
+//
+//  Created by Simon Gladman on 03/10/2014.
+//  Copyright (c) 2014 Simon Gladman. All rights reserved.
+//
+// Thanks to http://makeapppie.com/2014/08/30/the-swift-swift-tutorials-adding-modal-views-and-popovers/
+
+import Foundation
+import UIKit
+
+class Toolbar: UIControl
+{
+    var numberButton: UIBarButtonItem!
+    var operatorButton: UIBarButtonItem!
+    
+    let numericOperators = [NodeOperators.Add.rawValue, NodeOperators.Subtract.rawValue, NodeOperators.Multiply.rawValue, NodeOperators.Divide.rawValue, NodeOperators.Squareroot.rawValue]
+    let colorOperators = [NodeOperators.Color.rawValue, NodeOperators.HSLColor.rawValue, NodeOperators.ColorMultiply.rawValue]
+    
+    let buttons: [[String]]!
+    
+    let categorySegmentedControl = UISegmentedControl(items: [SegmentedControlItems.Number.rawValue, SegmentedControlItems.Operator.rawValue, SegmentedControlItems.ColorFunctions.rawValue])
+    var operatorsSegmentedControl = UISegmentedControl(items: [])
+    let valueSlider = UISlider(frame: CGRectZero)
+
+    override init(frame: CGRect)
+    {
+        buttons = [[], numericOperators, colorOperators]
+        
+        super.init(frame: frame)
+   
+        categorySegmentedControl.layer.backgroundColor = UIColor.darkGray.cgColor
+        categorySegmentedControl.tintColor = UIColor.white
+        categorySegmentedControl.alpha = 0.95
+        
+        addSubview(categorySegmentedControl)
+        
+        categorySegmentedControl.addTarget(self, action: #selector(categorySegmentedControlChangeHandler), for: UIControlEvents.valueChanged)
+   
+        valueSlider.addTarget(self, action: #selector(valueSliderChangeHandler), for: UIControlEvents.valueChanged)
+        
+        alpha = 0
+    }
+
+    required init(coder aDecoder: NSCoder)
+    {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func didMoveToSuperview()
+    {
+        numberButton = UIBarButtonItem(title: "\(NodeTypes.Number.rawValue)", style: .plain, target: self, action: "typeButtonHandler:")
+        operatorButton = UIBarButtonItem(title: "\(NodeTypes.Operator.rawValue)", style: .plain, target: self, action: "typeButtonHandler:")
+        
+        NodesPM.addObserver(observer: self, selector: #selector(selectedNodeChange), notificationType: .NodeSelected)
+        NodesPM.addObserver(observer: self, selector: #selector(selectedNodeChange), notificationType: .NodeUpdated)
+    }
+    
+    var categoryIndex: Int = -1
+    {
+        didSet
+        {
+            if categoryIndex != oldValue
+            {
+                operatorsSegmentedControl.removeFromSuperview()
+                
+                operatorsSegmentedControl = UISegmentedControl(items: buttons[categoryIndex])
+                addSubview(operatorsSegmentedControl)
+                
+                operatorsSegmentedControl.addTarget(self, action: #selector(operatorsSegmentedControlChangeHandler), for: UIControlEvents.valueChanged)
+                
+                operatorsSegmentedControl.layer.borderColor = UIColor.blue.cgColor
+                operatorsSegmentedControl.layer.borderWidth = 1
+                operatorsSegmentedControl.layer.backgroundColor = UIColor.white.cgColor
+                // operatorsSegmentedControl.tintColor = UIColor.whiteColor()
+                operatorsSegmentedControl.alpha = 0.95
+                operatorsSegmentedControl.frame = CGRect(x: 0, y: 39, width: frame.width, height: 41)
+                
+                if categoryIndex == 0
+                {
+                    addSubview(valueSlider)
+                    valueSlider.frame = CGRect(x: 0, y: 40, width: frame.width, height: 40)
+                }
+                else
+                {
+                    valueSlider.removeFromSuperview()
+                }
+                
+                categorySegmentedControl.selectedSegmentIndex = categoryIndex
+            }
+        }
+    }
+    
+    @objc func categorySegmentedControlChangeHandler()
+    {
+        categoryIndex = categorySegmentedControl.selectedSegmentIndex == -1 ? 0 : categorySegmentedControl.selectedSegmentIndex
+    }
+    
+    @objc func operatorsSegmentedControlChangeHandler()
+    {
+        let index = operatorsSegmentedControl.selectedSegmentIndex
+        let selectedOperatorName = [[], numericOperators, colorOperators][categorySegmentedControl.selectedSegmentIndex][index]
+        
+        if let _selectectedOperator = NodeOperators(rawValue: selectedOperatorName)
+        {
+            NodesPM.changeSelectedNodeType(newType: NodeTypes.Operator)
+            NodesPM.changeSelectedNodeOperator(newOperator: _selectectedOperator)
+        }
+    }
+    
+    @objc func selectedNodeChange()
+    {
+        selectedNode = NodesPM.selectedNode
+        
+        let targetAlpha = CGFloat(selectedNode == nil ? 0 : 1)
+        UIView.animate(withDuration: NodeConstants.animationDuration, animations: {self.alpha = targetAlpha})
+    }
+    
+    var selectedNode: NodeVO?
+    {
+        didSet
+        {
+            if let node = selectedNode
+            {
+                switch node.nodeType
+                {
+                    case NodeTypes.Number:
+                        valueSlider.setValue(Float(node.value), animated: true)
+                        categoryIndex = 0
+                    case NodeTypes.Operator:
+                        if node.getOutputType() == InputOutputTypes.Numeric
+                        {
+                           categoryIndex = 1
+                        }
+                        else if node.getOutputType() == InputOutputTypes.Color
+                        {
+                            categoryIndex = 2
+                        }
+                    
+                        let currentButtons = buttons[categoryIndex]
+                    let operatorIndex = currentButtons.index(of:node.nodeOperator.rawValue)
+                        
+                        operatorsSegmentedControl.selectedSegmentIndex = operatorIndex!
+                }
+            }
+        }
+    }
+    
+    @objc func valueSliderChangeHandler()
+    {
+        NodesPM.changeSelectedNodeValue(newValue: Double(valueSlider.value))
+    }
+    
+    override func layoutSubviews()
+    {
+        categorySegmentedControl.frame = CGRect(x: 0, y: 0, width: frame.width, height: 40).insetBy(dx: -3, dy: 0)
+
+        operatorsSegmentedControl.frame = CGRect(x: 0, y: 39, width: frame.width, height: 41).insetBy(dx: -3, dy: 0)
+        valueSlider.frame = CGRect(x: 0, y: 39, width: frame.width, height: 41).insetBy(dx: 5, dy: 0)
+    }
+    
+    class func getOperatorsForSegmentedControlItem(controlItem: SegmentedControlItems) -> [NodeOperators]
+    {
+        var returnOperators = [NodeOperators.Null]
+        
+        switch controlItem
+        {
+            case .Number:
+                returnOperators = [NodeOperators.Null]
+            case .Operator:
+                returnOperators = [NodeOperators.Add, NodeOperators.Subtract, NodeOperators.Multiply, NodeOperators.Divide, NodeOperators.Squareroot]
+            case .ColorFunctions:
+                returnOperators = [NodeOperators.Color, NodeOperators.HSLColor, NodeOperators.ColorMultiply]
+        }
+        
+        return returnOperators
+    }
+}
+
+enum SegmentedControlItems: String
+{
+    case Number = "Number"
+    case Operator = "Operator"
+    case ColorFunctions = "Color Functions"
+}
